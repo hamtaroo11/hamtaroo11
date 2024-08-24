@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Widget</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/qna/dist/tf-qna.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Chat Container */
+        #chat-container {
+            display: flex;
+            flex-direction: column; /* Ensures the children (header, history, input) are stacked vertically */
+            width: 360px;
+            height: 500px;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            background: #ffffff;
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            transform: translateX(100%);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        #chat-history {
+            flex: 1; /* Makes the history take up the available space */
+            padding: 15px;
+            overflow-y: auto;
+            background: #f3e5f5;
+        }
+
+        #chat-container.open {
+            transform: translateX(0);
+        }
+
+        #chat-header {
+            background: #9c27b0;
+            /* Purple background */
+            color: #fff;
+            padding: 15px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            position: relative;
+        }
+
+
+        .message {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 20px;
+            word-wrap: break-word;
+            max-width: 75%;
+            position: relative;
+            transition: opacity 0.5s ease;
+        }
+
+        .message.user-message {
+            background: #d1c4e9;
+            /* Lighter purple background */
+            align-self: flex-start;
+            color: #333;
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 20px;
+        }
+
+        .message.bot-message {
+            background: #ab47bc;
+            /* Darker purple background */
+            align-self: flex-end;
+            color: #fff;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 20px;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+
+        .message-text {
+            max-width: 100%;
+            word-break: break-word;
+        }
+
+        #input-container {
+            display: flex;
+            padding: 10px;
+            background: #ffffff;
+            border-top: 1px solid #ddd;
+            box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        button {
+            height: 40px;
+            width: 60px;
+            background-color: #ab47bc;
+            /* Darker purple background */
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        button:hover {
+            background-color: #8e24aa;
+            /* Darker purple on hover */
+        }
+
+        /* Floating Button */
+        #floating-button {
+            width: 60px;
+            height: 60px;
+            background-color: #9c27b0;
+            /* Purple background */
+            border-radius: 50%;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s ease;
+        }
+
+        #floating-button img {
+            width: 40px;
+            /* Adjust size of the image */
+            height: 40px;
+            border-radius: 50%;
+        }
+
+        #floating-button:hover {
+            background-color: #8e24aa;
+            /* Darker purple on hover */
+        }
+
+        #close-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #f44336;
+            /* Red background */
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            font-size: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="chat-container">
+        <div id="chat-header">
+            Chatbot
+            <button id="close-button">&times;</button>
+        </div>
+        <div id="chat-history"></div>
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="Type your message..." onkeydown="handleKeyDown(event)">
+            <button onclick="sendMessage()" id="send-button">Send</button>
+        </div>
+    </div>
+
+    <div id="floating-button" onclick="toggleChat()">
+        <img src="bot-avatar.png" alt="Chat Icon">
+    </div>
+
+    <!-- Load ONNX.js -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxjs/dist/onnx.min.js"></script>
+
+    <script>
+        let session;
+
+        // Load the T5 model
+        async function loadModel() {
+            try {
+                session = new onnx.InferenceSession();
+                //await session.loadModel('http://localhost:8000/t5-large.onnx'); // Ensure this URL is correct
+                await session.loadModel('./t5-large.onnx');
+                console.log('Model loaded successfully.');
+            } catch (error) {
+                console.error('Error loading model:', error);
+            }
+        }
+
+        loadModel(); // Load the model when the page loads
+
+        const chatContainer = document.getElementById("chat-container");
+        const floatingButton = document.getElementById("floating-button");
+        const closeButton = document.getElementById("close-button");
+
+        function toggleChat() {
+            chatContainer.classList.toggle("open");
+            floatingButton.style.display = chatContainer.classList.contains("open") ? "none" : "flex";
+        }
+
+        async function sendMessage() {
+            const userInput = document.getElementById("user-input").value.trim();
+            if (!userInput) return; // Don't send empty messages
+
+            displayMessage(userInput, true); // Display user message in chat history
+            document.getElementById("user-input").value = ""; // Clear input field
+
+            // Process the user input
+            const response = await getResponse(userInput);
+            displayMessage(response, false); // Display bot response
+        }
+
+        async function getResponse(userInput) {
+            try {
+                // Prepare the input tensor
+                const inputTensor = new onnx.Tensor(new Float32Array([/* fill with input data */]), 'float32', [1, userInput.length]);
+
+                // Run the model
+                const output = await session.run({ 'input_ids': inputTensor });
+
+                // Process the output
+                const response = output[0].data; // Adjust this based on the model's output
+
+                return response || "Sorry, I didn't understand that.";
+            } catch (error) {
+                console.error('Error:', error);
+                return "Sorry, there was an error processing your request.";
+            }
+        }
+
+        function displayMessage(message, isUser) {
+            const chatHistory = document.getElementById("chat-history");
+            const messageElement = document.createElement("div");
+            messageElement.className = "message " + (isUser ? "user-message" : "bot-message");
+
+            const avatarElement = document.createElement("img");
+            avatarElement.src = isUser ? "user-avatar.png" : "bot-avatar.png"; // Replace with your avatar images
+            avatarElement.className = "message-avatar";
+
+            const textElement = document.createElement("div");
+            textElement.className = "message-text";
+            textElement.textContent = message;
+
+            messageElement.appendChild(avatarElement);
+            messageElement.appendChild(textElement);
+
+            chatHistory.appendChild(messageElement);
+            chatHistory.scrollTop = chatHistory.scrollHeight; // Scroll to bottom of chat history
+        }
+
+        function handleKeyDown(event) {
+            if (event.keyCode === 13) { // Check if the pressed key is Enter (key code 13)
+                sendMessage(); // Call sendMessage function
+            }
+        }
+
+        closeButton.addEventListener("click", () => {
+            chatContainer.classList.remove("open");
+            floatingButton.style.display = "flex";
+        });
+    </script>
+</body>
+
+</html>
